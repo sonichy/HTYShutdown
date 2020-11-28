@@ -1,0 +1,6 @@
+<?xml version="1.0" standalone="no"?>
+<!DOCTYPE svg PUBLIC "-//W3C//DTD SVG 1.1//EN" "http://www.w3.org/Graphics/SVG/1.1/DTD/svg11.dtd">
+<svg width="40" height="40" version="1.1" xmlns="http://www.w3.org/2000/svg">
+<path d="M36 14 a 16 16 0 1 0 0 12" stroke="white" stroke-width="2" stroke-linecap="round" fill="none"/>
+<line x1="25" y1="20" x2="38" y2="20" stroke="white" stroke-width="2" stroke-linecap="round"/>
+</svg>
