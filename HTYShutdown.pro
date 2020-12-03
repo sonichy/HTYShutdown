@@ -9,10 +9,12 @@ CONFIG += c++11
 
 SOURCES += \
         main.cpp \
-        mainwindow.cpp
+        mainwindow.cpp \
+    blurimage.cpp
 
 HEADERS += \
-        mainwindow.h
+        mainwindow.h \
+    blurimage.h
 
 RESOURCES += \
     res.qrc

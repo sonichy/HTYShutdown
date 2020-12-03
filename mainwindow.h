@@ -1,6 +1,7 @@
 #ifndef MAINWINDOW_H
 #define MAINWINDOW_H
 
+#include "blurimage.h"
 #include <QMainWindow>
 #include <QToolButton>
 #include <QTimer>
@@ -16,14 +17,16 @@ public:
 
 protected:
     bool eventFilter(QObject *object, QEvent *event);
+    void paintEvent(QPaintEvent *event);
 
 private:
     QToolButton *toolButton_shutdown, *toolButton_reboot, *toolButton_suspend, *toolButton_lock, *toolButton_logout;
-    QTimer *timer;
-    int br;
+    QImage image_bg;    
+    void blurBackground(QImage image);
+    void blur(QImage image, int p);
 
-private slots:
-    void windowStateChange(Qt::WindowState state);
+signals:
+    void startThread();
 
 };
 

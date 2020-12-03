@@ -1,4 +1,5 @@
 #include "mainwindow.h"
+#include "blurimage.h"
 #include <QStandardPaths>
 #include <QSettings>
 #include <QFile>
@@ -9,10 +10,14 @@
 #include <QProcess>
 #include <QShortcut>
 #include <QApplication>
+#include <QPainter>
+#include <QDesktopWidget>
+#include <QThread>
+#include <QTime>
 
 MainWindow::MainWindow(QWidget *parent)
     : QMainWindow(parent)
-{
+{    
     setWindowIcon(QIcon(":/icon/shutdown.svg"));
 
     QWidget *widget = new QWidget;
@@ -95,51 +100,71 @@ MainWindow::MainWindow(QWidget *parent)
     widget->setLayout(vbox);
     setCentralWidget(widget);
 
-    connect(this, SIGNAL(windowStateChanged(Qt::WindowState)), this, SLOT(windowStateChange(Qt::WindowState)));//没有这个信号
-
-    QString userName = QStandardPaths::standardLocations(QStandardPaths::HomeLocation).at(0).section('/', -1);
+    QString user_name = QStandardPaths::writableLocation(QStandardPaths::HomeLocation).section('/', -1);
     // 登录设置文件：/var/lib/AccountsService/users/用户名
-    QSettings *settings = new QSettings("/var/lib/AccountsService/deepin/users/" + userName, QSettings::IniFormat);
-    QString DesktopBackgrounds = settings->value("/User/DesktopBackgrounds").toString();
-    QStringList SL = DesktopBackgrounds.split(";");
+    //QSettings *settings = new QSettings("/var/lib/AccountsService/deepin/users/" + user_name, QSettings::IniFormat);
+    //QString DesktopBackgrounds = settings->value("/User/DesktopBackgrounds").toString();//QSettings 逗号分隔，分号结束，只能读到第一张壁纸
+    QString filepath = "/var/lib/AccountsService/deepin/users/" + user_name;
+    QFile file(filepath);
+    file.open(QIODevice::ReadOnly);
+    QString s = file.readAll();
+    QStringList SL = s.split("\n");
+    QString DesktopBackgrounds = "";
+    for (int i=0; i<SL.length(); i++) {
+        s = SL.at(i);
+        if (s.startsWith("DesktopBackgrounds=")) {
+            DesktopBackgrounds = s.replace("DesktopBackgrounds=", "");
+        }
+    }
+    qWarning() << DesktopBackgrounds;
+    SL = DesktopBackgrounds.split(";");
+    SL.removeAll("");
+    qWarning() << SL;
     QString DesktopBackground = SL.at(0);
     DesktopBackground = DesktopBackground.replace("file://", "");
-    QFile file(DesktopBackground);
-    QString sstyle = "MainWindow { border-image:url(" + DesktopBackground + "); background:#000000;}"
+    qWarning() << DesktopBackground;
+    image_bg = QImage(DesktopBackground);
+    QString sstyle =
+            //"MainWindow { border-image:url(" + DesktopBackground + "); background:#000000;}"
             "QToolButton { color:white; font-size:16px; background:transparent; }"            
             "QToolButton::focus { background:rgba(0,0,0,100); }"
             "QToolButton::hover { color:black; background:rgba(255,255,255,100); }"
             "QToolButton::pressed { color:white; }";
     setStyleSheet(sstyle);
-    showFullScreen();
-    connect(new QShortcut(QKeySequence(Qt::Key_Escape),this), SIGNAL(activated()), qApp, SLOT(quit()));
+    showFullScreen();    
 
-    br = 0;
-    timer = new QTimer(this);
-    connect(timer, &QTimer::timeout, [=]{
-        if (br < 20)
-            br++;
-        else
-            timer->stop();
-        QGraphicsBlurEffect *blurEffect = new QGraphicsBlurEffect;
-        blurEffect->setBlurRadius(br);
-        setGraphicsEffect(blurEffect);
+    QTime startTime = QTime::currentTime();
+    QThread *thread = new QThread(this);
+    QImage image(DesktopBackground);
+    BlurImage *blurImage = new BlurImage(image, 5);
+    connect(blurImage, &BlurImage::finish, [=]{
+        qWarning() << "draw blur background";
+        image_bg = blurImage->image_blur;
+        update();
+        thread->quit();
+        QTime stopTime = QTime::currentTime();
+        int elapsed = startTime.msecsTo(stopTime);
+        QTime time(0,0,0);
+        time = time.addMSecs(elapsed);
+        qWarning() << "模糊背景耗时：" << time.toString("mm:ss.zzz");
     });
-    //timer->start(100);//全模糊
+    blurImage->moveToThread(thread);
+    thread->start();
+    connect(this, &MainWindow::startThread, blurImage, &BlurImage::start);
+    emit startThread();
+
+    connect(new QShortcut(QKeySequence(Qt::Key_Escape),this), &QShortcut::activated, [=]{
+        thread->quit();
+        //thread->wait();//进程没结束退出会崩溃，等待等下才能退出。
+        qApp->quit();
+    });
+
+    //blur(image_bg, 5);//卡UI
 }
 
 MainWindow::~MainWindow()
 {
 
-}
-
-void MainWindow::windowStateChange(Qt::WindowState state)
-{
-    qDebug() << state;
-    if (state == Qt::WindowActive) {
-        br = 0;
-        timer->start(100);
-    }
 }
 
 bool MainWindow::eventFilter(QObject *object, QEvent *event)
@@ -176,4 +201,38 @@ bool MainWindow::eventFilter(QObject *object, QEvent *event)
         }
     }
     return QWidget::eventFilter(object, event);
+}
+
+void MainWindow::paintEvent(QPaintEvent *event)
+{
+    //qWarning() << "draw background";
+    Q_UNUSED(event);    
+    QPainter painter(this);
+    painter.drawImage(rect(), image_bg);
+}
+
+void MainWindow::blur(QImage image, int p)
+{
+    image_bg = QImage(image.width(), image.height(), QImage::Format_RGB32);
+    for(int x=0; x<image.width(); x++){
+        for(int y=0; y<image.height(); y++){
+            int red=0, green=0, blue=0, pc=0;
+            for(int a=-p; a<=p; a++){
+                for(int b=-p; b<=p; b++){
+                    int xa = x+a;
+                    int yb = y+b;
+                    if(xa>0 && yb>0 && xa<image.width() && yb<image.height()){
+                        red += qRed(image.pixel(xa,yb));
+                        green += qGreen(image.pixel(xa,yb));
+                        blue += qBlue(image.pixel(xa,yb));
+                        pc += 1;
+                    }
+                }
+            }
+            QRgb RGBblur = qRgb(red/pc, green/pc, blue/pc);
+            image_bg.setPixel(x, y, RGBblur);
+        }
+    }
+    qWarning() << "QImage blur finish";
+    update();
 }
